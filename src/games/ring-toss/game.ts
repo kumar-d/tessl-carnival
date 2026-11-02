@@ -224,6 +224,14 @@ function draw(ctx: CanvasRenderingContext2D, state: RingTossState) {
   ctx.textAlign = 'left';
   for (const { y, points } of ROWS) ctx.fillText(`${points}`, WIDTH / 2 + 240, y + 20);
 
+  // How to throw, in the gap between the awning and the table.
+  if (state.phase === 'playing') {
+    ctx.fillStyle = colors.text;
+    ctx.font = canvasFont('small');
+    ctx.textAlign = 'center';
+    ctx.fillText('Hold to charge · drag to aim · release to throw', WIDTH / 2, 76);
+  }
+
   ctx.font = canvasFont('body', 'bold');
   ctx.textAlign = 'center';
   for (const landing of state.landings) {

@@ -5,7 +5,8 @@ Land rings on the necks of the bottles on the table before you run out.
 ## How to play
 
 - Every ring flies from the launcher in the lower-left corner. The arrow shows where it is
-  aimed, and the meter beside it shows how hard it will throw.
+  aimed, and the meter beside it shows how hard it will throw. A line above the table
+  sums up the controls: hold to charge, drag to aim, release to throw.
 - Press and hold on the game with the mouse button or a finger to charge the throw. The
   meter fills while you hold, and stops at full strength.
 - While you hold, move the mouse or drag your finger to swing the arrow. Release to throw.

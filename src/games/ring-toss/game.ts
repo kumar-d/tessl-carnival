@@ -4,10 +4,19 @@ const { width: WIDTH, height: HEIGHT } = theme.canvas;
 
 export const RINGS_PER_ROUND = 10;
 /** Seconds a ring spends in the air. */
-export const FLIGHT_TIME = 0.5;
+export const FLIGHT_TIME = 0.8;
 /** How close to a bottle's neck a ring has to land to ring it. */
 export const NECK_RADIUS = 22;
-export const THROWER = { x: WIDTH / 2, y: HEIGHT - 20 } as const;
+/** The fixed launcher in the lower-left corner that every ring leaves from. */
+export const LAUNCHER = { x: 70, y: 440 } as const;
+/** The launcher aims between these angles, in radians: negative is up the screen. */
+export const MIN_ANGLE = (-75 * Math.PI) / 180;
+export const MAX_ANGLE = (-5 * Math.PI) / 180;
+/** How far a ring flies at no charge and at full charge. */
+export const MIN_RANGE = 120;
+export const MAX_RANGE = 640;
+/** Seconds of holding it takes to charge a throw to full strength. */
+export const CHARGE_TIME = 2;
 
 export type Row = 'back' | 'middle' | 'front';
 
@@ -47,6 +56,10 @@ export interface RingTossState {
   bottles: Bottle[];
   ring: Ring | null;
   landings: Landing[];
+  /** The launcher's aim, in radians, between MIN_ANGLE and MAX_ANGLE. */
+  aim: number;
+  /** Strength from 0 to 1 while a throw is charging, or null when it isn't. */
+  charge: number | null;
   ringsLeft: number;
   score: number;
   phase: 'playing' | 'over';
@@ -65,6 +78,8 @@ export function createState(): RingTossState {
     bottles,
     ring: null,
     landings: [],
+    aim: (MIN_ANGLE + MAX_ANGLE) / 2,
+    charge: null,
     ringsLeft: RINGS_PER_ROUND,
     score: 0,
     phase: 'playing',
@@ -81,12 +96,50 @@ export function bottleAt(state: RingTossState, x: number, y: number): Bottle | u
   return state.bottles.find((b) => Math.hypot(x - b.x, y - b.y) <= NECK_RADIUS);
 }
 
-/** Throws one ring at the aim point. Returns false if nothing was thrown. */
-export function throwRing(state: RingTossState, aimX: number, aimY: number): boolean {
+/** Points the launcher towards the point, kept within its aiming range. */
+export function aimAt(state: RingTossState, x: number, y: number): void {
+  const angle = Math.atan2(y - LAUNCHER.y, x - LAUNCHER.x);
+  state.aim = Math.min(Math.max(angle, MIN_ANGLE), MAX_ANGLE);
+}
+
+/** Where a ring thrown at this angle and strength (0 to 1) comes down. */
+export function landingPoint(angle: number, strength: number): { x: number; y: number } {
+  const distance = MIN_RANGE + (MAX_RANGE - MIN_RANGE) * Math.min(Math.max(strength, 0), 1);
+  return {
+    x: LAUNCHER.x + Math.cos(angle) * distance,
+    y: LAUNCHER.y + Math.sin(angle) * distance,
+  };
+}
+
+/** Starts charging a throw. Returns false if a throw can't start now. */
+export function startCharge(state: RingTossState): boolean {
+  if (state.phase !== 'playing' || state.ring || state.ringsLeft === 0 || state.charge !== null) {
+    return false;
+  }
+  state.charge = 0;
+  return true;
+}
+
+/** Drops a charging throw without spending a ring. */
+export function cancelCharge(state: RingTossState): void {
+  state.charge = null;
+}
+
+/** Throws one ring at the angle and strength. Returns false if nothing was thrown. */
+export function throwRing(state: RingTossState, angle: number, strength: number): boolean {
   if (state.phase !== 'playing' || state.ring || state.ringsLeft === 0) return false;
-  state.ring = { fromX: THROWER.x, fromY: THROWER.y, toX: aimX, toY: aimY, age: 0 };
+  const to = landingPoint(angle, strength);
+  state.ring = { fromX: LAUNCHER.x, fromY: LAUNCHER.y, toX: to.x, toY: to.y, age: 0 };
   state.ringsLeft -= 1;
   return true;
+}
+
+/** Throws the charging ring along the launcher's aim. Returns false if nothing was thrown. */
+export function releaseCharge(state: RingTossState): boolean {
+  if (state.charge === null) return false;
+  const strength = state.charge;
+  state.charge = null;
+  return throwRing(state, state.aim, strength);
 }
 
 /** Scores a ring that has landed at the point, and returns the points it scored. */
@@ -102,12 +155,13 @@ export function landRing(state: RingTossState, x: number, y: number): number {
   return points;
 }
 
-/** Where the ring is now, arcing up on its way to the aim point. */
+/** Where the ring is now, arcing up on its way from the launcher. Longer throws arc higher. */
 export function ringPosition(ring: Ring): { x: number; y: number } {
   const t = Math.min(ring.age / FLIGHT_TIME, 1);
+  const height = Math.hypot(ring.toX - ring.fromX, ring.toY - ring.fromY) * 0.3;
   return {
     x: ring.fromX + (ring.toX - ring.fromX) * t,
-    y: ring.fromY + (ring.toY - ring.fromY) * t - Math.sin(Math.PI * t) * 80,
+    y: ring.fromY + (ring.toY - ring.fromY) * t - Math.sin(Math.PI * t) * height,
   };
 }
 
@@ -115,6 +169,8 @@ export function ringPosition(ring: Ring): { x: number; y: number } {
 export function step(state: RingTossState, dt: number): void {
   for (const landing of state.landings) landing.age += dt;
   state.landings = state.landings.filter((l) => l.age < 1);
+
+  if (state.charge !== null) state.charge = Math.min(state.charge + dt / CHARGE_TIME, 1);
 
   if (state.ring) {
     state.ring.age += dt;
@@ -136,7 +192,7 @@ function drawRing(ctx: CanvasRenderingContext2D, x: number, y: number, size: num
   ctx.stroke();
 }
 
-function draw(ctx: CanvasRenderingContext2D, state: RingTossState, aim: { x: number; y: number }) {
+function draw(ctx: CanvasRenderingContext2D, state: RingTossState) {
   const { colors } = theme;
 
   ctx.fillStyle = colors.background;
@@ -195,23 +251,42 @@ function draw(ctx: CanvasRenderingContext2D, state: RingTossState, aim: { x: num
     drawRing(ctx, x, y, 20);
   }
 
-  // Aim point.
+  // Launcher, its aim arrow and, while a throw charges, the strength meter.
+  ctx.fillStyle = colors.surface;
+  ctx.beginPath();
+  ctx.arc(LAUNCHER.x, LAUNCHER.y, 18, 0, Math.PI * 2);
+  ctx.fill();
+  if (!state.ring) drawRing(ctx, LAUNCHER.x, LAUNCHER.y, 12);
   if (state.phase === 'playing') {
+    const tipX = LAUNCHER.x + Math.cos(state.aim) * 70;
+    const tipY = LAUNCHER.y + Math.sin(state.aim) * 70;
     ctx.strokeStyle = colors.text;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.arc(aim.x, aim.y, NECK_RADIUS, 0, Math.PI * 2);
-    ctx.moveTo(aim.x - 6, aim.y);
-    ctx.lineTo(aim.x + 6, aim.y);
-    ctx.moveTo(aim.x, aim.y - 6);
-    ctx.lineTo(aim.x, aim.y + 6);
+    ctx.moveTo(LAUNCHER.x, LAUNCHER.y);
+    ctx.lineTo(tipX, tipY);
+    for (const side of [-1, 1]) {
+      const back = state.aim + Math.PI + side * 0.5;
+      ctx.moveTo(tipX, tipY);
+      ctx.lineTo(tipX + Math.cos(back) * 12, tipY + Math.sin(back) * 12);
+    }
     ctx.stroke();
+
+    const meter = { x: 16, y: 380, width: 12, height: 80 };
+    ctx.fillStyle = colors.surface;
+    ctx.fillRect(meter.x, meter.y, meter.width, meter.height);
+    const filled = (state.charge ?? 0) * meter.height;
+    ctx.fillStyle = colors.accent;
+    ctx.fillRect(meter.x, meter.y + meter.height - filled, meter.width, filled);
+    ctx.strokeStyle = colors.muted;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(meter.x, meter.y, meter.width, meter.height);
   }
 
   ctx.fillStyle = colors.text;
   ctx.font = canvasFont('body', 'bold');
   ctx.textAlign = 'left';
-  ctx.fillText(`Score ${state.score}`, 16, HEIGHT - 20);
+  ctx.fillText(`Score ${state.score}`, 120, HEIGHT - 20);
   ctx.textAlign = 'right';
   ctx.fillText(`Rings ${state.ringsLeft}/${RINGS_PER_ROUND}`, WIDTH - 16, HEIGHT - 20);
 
@@ -240,13 +315,13 @@ export const ringToss: CarnivalGame = {
     if (!ctx) throw new Error('Canvas 2D is not available');
     canvas.width = WIDTH;
     canvas.height = HEIGHT;
-    // Keep taps on the canvas from scrolling or zooming the page.
+    // Keep presses and drags on the canvas from scrolling or zooming the page.
     const touchAction = canvas.style.touchAction;
     canvas.style.touchAction = 'none';
 
     let state = createState();
     let scoreRecorded = false;
-    const aim = { x: WIDTH / 2, y: HEIGHT / 2 };
+    let pointer: number | null = null;
 
     const toCanvas = (event: PointerEvent) => {
       const rect = canvas.getBoundingClientRect();
@@ -255,18 +330,41 @@ export const ringToss: CarnivalGame = {
         y: ((event.clientY - rect.top) / rect.height) * HEIGHT,
       };
     };
-    const onMove = (event: PointerEvent) => Object.assign(aim, toCanvas(event));
+    const aimFrom = (event: PointerEvent) => {
+      const { x, y } = toCanvas(event);
+      aimAt(state, x, y);
+    };
+    const onMove = (event: PointerEvent) => {
+      if (pointer === null || event.pointerId === pointer) aimFrom(event);
+    };
     const onDown = (event: PointerEvent) => {
-      Object.assign(aim, toCanvas(event));
       if (state.phase === 'over') {
         state = createState();
         scoreRecorded = false;
-      } else {
-        throwRing(state, aim.x, aim.y);
+        return;
       }
+      if (pointer !== null) return;
+      aimFrom(event);
+      if (!startCharge(state)) return;
+      pointer = event.pointerId;
+      // Keep getting this pointer's moves and release even if it leaves the canvas.
+      canvas.setPointerCapture?.(event.pointerId);
+    };
+    const onUp = (event: PointerEvent) => {
+      if (event.pointerId !== pointer) return;
+      pointer = null;
+      aimFrom(event);
+      releaseCharge(state);
+    };
+    const onCancel = (event: PointerEvent) => {
+      if (event.pointerId !== pointer) return;
+      pointer = null;
+      cancelCharge(state);
     };
     canvas.addEventListener('pointermove', onMove);
     canvas.addEventListener('pointerdown', onDown);
+    canvas.addEventListener('pointerup', onUp);
+    canvas.addEventListener('pointercancel', onCancel);
 
     let frame = 0;
     let last = performance.now();
@@ -279,7 +377,7 @@ export const ringToss: CarnivalGame = {
         recordScore(ringToss.id, state.score);
         scoreRecorded = true;
       }
-      draw(ctx, state, aim);
+      draw(ctx, state);
       frame = requestAnimationFrame(loop);
     };
     frame = requestAnimationFrame(loop);
@@ -288,6 +386,8 @@ export const ringToss: CarnivalGame = {
       cancelAnimationFrame(frame);
       canvas.removeEventListener('pointermove', onMove);
       canvas.removeEventListener('pointerdown', onDown);
+      canvas.removeEventListener('pointerup', onUp);
+      canvas.removeEventListener('pointercancel', onCancel);
       canvas.style.touchAction = touchAction;
     };
   },

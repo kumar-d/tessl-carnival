@@ -4,8 +4,10 @@ Land rings on the necks of the bottles on the table before you run out.
 
 ## How to play
 
-- Move the mouse, or drag a finger, to aim. The circle shows where the ring will land.
-- Click or tap to throw a ring. You have 10 rings a round.
+- With a mouse, move to aim: the circle shows where the ring will land. Click to throw.
+- On a touch screen, tap the spot where you want the ring to land: the tap aims and
+  throws in one go.
+- You have 10 rings a round.
 - One ring flies at a time: clicks or taps while a ring is in the air don't throw another.
 - A ring that lands on a bottle stays on its neck. A miss shows a red cross.
 - The round ends when the tenth ring lands. Click or tap the final score screen to play again.

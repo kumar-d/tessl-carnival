@@ -240,7 +240,7 @@ export const ringToss: CarnivalGame = {
     if (!ctx) throw new Error('Canvas 2D is not available');
     canvas.width = WIDTH;
     canvas.height = HEIGHT;
-    // Let touch drags aim instead of scrolling the page.
+    // Keep taps on the canvas from scrolling or zooming the page.
     const touchAction = canvas.style.touchAction;
     canvas.style.touchAction = 'none';
 
